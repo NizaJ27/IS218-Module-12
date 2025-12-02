@@ -8,6 +8,7 @@ from fastapi.exceptions import RequestValidationError
 from app.operations import add, subtract, multiply, divide  # Ensure correct import path
 from app.db import init_db, SessionLocal
 from app.operations import users as user_ops
+from app.operations import calculations as calc_ops
 from app import schemas
 import uvicorn
 import logging
@@ -123,7 +124,9 @@ if __name__ == "__main__":
     uvicorn.run(app, host="127.0.0.1", port=8000)
 
 
-@app.post("/users", response_model=schemas.UserRead)
+# ========== User Endpoints ==========
+
+@app.post("/users/register", response_model=schemas.UserRead)
 def register_user(user_in: schemas.UserCreate):
     """Register a new user. Returns the created user without password."""
     db = SessionLocal()
@@ -132,5 +135,85 @@ def register_user(user_in: schemas.UserCreate):
         return user
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        db.close()
+
+
+@app.post("/users/login", response_model=schemas.UserRead)
+def login_user(user_login: schemas.UserLogin):
+    """Login a user by verifying username and password."""
+    db = SessionLocal()
+    try:
+        user = user_ops.authenticate_user(db, user_login.username, user_login.password)
+        if not user:
+            raise HTTPException(status_code=401, detail="Invalid username or password")
+        return user
+    finally:
+        db.close()
+
+
+# ========== Calculation Endpoints (BREAD) ==========
+
+@app.post("/calculations", response_model=schemas.CalculationRead)
+def create_calculation(calc_in: schemas.CalculationCreate):
+    """Add a new calculation."""
+    db = SessionLocal()
+    try:
+        calc = calc_ops.create_calculation(db, calc_in, store_result=True)
+        return calc
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        db.close()
+
+
+@app.get("/calculations", response_model=list[schemas.CalculationRead])
+def browse_calculations(skip: int = 0, limit: int = 100):
+    """Browse all calculations with pagination."""
+    db = SessionLocal()
+    try:
+        calcs = calc_ops.get_all_calculations(db, skip=skip, limit=limit)
+        return calcs
+    finally:
+        db.close()
+
+
+@app.get("/calculations/{calc_id}", response_model=schemas.CalculationRead)
+def read_calculation(calc_id: int):
+    """Read a specific calculation by ID."""
+    db = SessionLocal()
+    try:
+        calc = calc_ops.get_calculation_by_id(db, calc_id)
+        if not calc:
+            raise HTTPException(status_code=404, detail="Calculation not found")
+        return calc
+    finally:
+        db.close()
+
+
+@app.put("/calculations/{calc_id}", response_model=schemas.CalculationRead)
+def update_calculation(calc_id: int, calc_in: schemas.CalculationCreate):
+    """Edit an existing calculation."""
+    db = SessionLocal()
+    try:
+        calc = calc_ops.update_calculation(db, calc_id, calc_in)
+        if not calc:
+            raise HTTPException(status_code=404, detail="Calculation not found")
+        return calc
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        db.close()
+
+
+@app.delete("/calculations/{calc_id}")
+def delete_calculation(calc_id: int):
+    """Delete a calculation by ID."""
+    db = SessionLocal()
+    try:
+        deleted = calc_ops.delete_calculation(db, calc_id)
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Calculation not found")
+        return {"message": "Calculation deleted successfully"}
     finally:
         db.close()
